@@ -48,6 +48,23 @@ def read_blob(path: Path) -> Blob:
     :param path: path to blob-file
     :return: blob-file type and content
     """
+    data = path.read_bytes()
+    raw = zlib.decompress(data)
+    x = raw.find(b' ')
+    fmt = raw[0:x]
+    y = raw.find(b'\x00', x)
+    size = int(raw[x:y].decode("ascii"))
+    # if size != len(raw) - y - 1:
+    #     raise Exception("Malformed object {0}: bad length")
+    if fmt == b'commit':
+        c = BlobType.COMMIT
+    elif fmt == b'tree':
+        c = BlobType.TREE
+    elif fmt == b'blob':
+        c = BlobType.DATA
+    # else:
+    #     raise Exception("Unknown type %s for object %s".format(fmt.decode("ascii")))
+    return Blob(c, raw[y + 1:])
 
 
 def traverse_objects(obj_dir: Path) -> tp.Dict[str, Blob]:
@@ -56,6 +73,13 @@ def traverse_objects(obj_dir: Path) -> tp.Dict[str, Blob]:
     :param obj_dir: path to git "objects" directory
     :return: mapping from hash to blob with every blob found
     """
+    hash_to_blob: tp.Dict[str, Blob] = {}
+    paths = list(obj_dir.rglob("*"))
+    for path in paths:
+        cur_paths = list(path.rglob("*"))
+        for to_blob in cur_paths:
+            hash_to_blob.update({str(path.name) + str(to_blob.name): read_blob(to_blob)})
+    return hash_to_blob
 
 
 def parse_commit(blob: Blob) -> Commit:
@@ -64,6 +88,38 @@ def parse_commit(blob: Blob) -> Commit:
     :param blob: blob with commit type
     :return: parsed commit
     """
+    data = blob.content
+    data = data.decode("ascii")
+    # data = data.split()
+    # tree_hash_start = (data.find("tree"))
+    # parent_start = data.find("parent")
+    # author_start = data.find("author")
+    # committer_start = data.find("committer")
+    # if parent_start == -1:
+    #     parent_start = author_start
+    # tree_hash = data[tree_hash_start + len("tree"): parent_start].strip().strip("\n")
+    # parents = data[parent_start + len("parent") : author_start].strip().strip("\n").split() if parent_start else []
+    # author = str(data[author_start + len("author") : committer_start]).strip().strip("\n")
+    # committer_and_message = str(data[committer_start + len("committer"):]).strip().strip("\n")
+    # committer, message = committer_and_message.split("\n\n")
+    header, message = data.split("\n\n")
+    lines = header.split("\n")
+    t_index = 0
+    p_index = 1
+    a_index = 2
+    c_index = 3
+    tree_hash = lines[t_index][len("tree"):].strip().strip("\n")
+    if len(lines) > 3:
+        parents = lines[p_index][len("parent"):].strip().strip("\n").split()
+    else:
+        parents = []
+        a_index -= 1
+        c_index -= 1
+    author = (lines[a_index][len("author"):]).strip().strip("\n")
+    committer = (lines[c_index][len("committer"):]).strip().strip("\n")
+    message = message.strip().strip("\n")
+
+    return Commit(tree_hash, parents, author, committer, message)
 
 
 def parse_tree(blobs: tp.Dict[str, Blob], tree_root: Blob, ignore_missing: bool = True) -> Tree:
@@ -78,12 +134,26 @@ def parse_tree(blobs: tp.Dict[str, Blob], tree_root: Blob, ignore_missing: bool 
     """
 
 
+path = Path("/Users/racine/Library/Mobile Documents/com~apple~CloudDocs/fmkn-spring-2020/git_blob/objects")
+
+
 def find_initial_commit(blobs: tp.Dict[str, Blob]) -> Commit:
     """
     Iterate over blobs and find initial commit (without parents)
     :param blobs: blobs read from objects dir
     :return: initial commit
     """
+    blobs = traverse_objects(path)
+    for item in blobs.items():
+        pair, blob = item
+        # print(blob.type_)
+        if blob.type_ == BlobType.COMMIT:
+            commit = parse_commit(blob)
+            # print(type(answer))
+            if not commit.parents:
+                return commit
+            else:
+                continue
 
 
 def search_file(blobs: tp.Dict[str, Blob], tree_root: Blob, filename: str) -> Blob:
@@ -95,3 +165,16 @@ def search_file(blobs: tp.Dict[str, Blob], tree_root: Blob, filename: str) -> Bl
     :param filename: requested file
     :return: requested file blob
     """
+
+# print(path.parent)
+# Paths = list(path.rglob("*"))
+# for path in Paths:
+#     print(list(path.rglob("*")))
+
+
+# print(type(parse_commit(blob)))
+# print(find_initial_commit(traverse_objects(path)))
+# print(traverse_objects(path))
+# print(parse_commit(blob))
+
+# print(find_initial_commit())
